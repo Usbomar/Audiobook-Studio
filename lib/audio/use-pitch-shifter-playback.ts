@@ -71,41 +71,11 @@ export function usePitchShifterPlayback(
     const { PitchShifter } = await import("soundtouchjs");
     destroyShifter();
 
-    const bufferDuration = bufferRef.current.duration;
-    const bufferLength = bufferRef.current.length;
-
     const shifter = new PitchShifter(
       ctxRef.current,
       bufferRef.current,
       16384,
       () => {
-        const endPct = savedPercentRef.current;
-        // #region agent log
-        fetch("http://127.0.0.1:7696/ingest/413f817f-149f-48a6-901c-86e9787dbcfb", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Debug-Session-Id": "c2f93a",
-          },
-          body: JSON.stringify({
-            sessionId: "c2f93a",
-            runId: "pre-fix",
-            hypothesisId: "A",
-            location: "use-pitch-shifter-playback.ts:onEnd",
-            message: "PitchShifter onEnd fired",
-            data: {
-              bufferDuration,
-              bufferLength,
-              timePlayed: (endPct / 100) * shifter.duration,
-              percentagePlayed: endPct,
-              shifterDuration: shifter.duration,
-              tempo: tempoRef.current,
-              pitch: pitchRef.current,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         setIsPlaying(false);
         savedPercentRef.current = 0;
         destroyShifter();
@@ -118,33 +88,6 @@ export function usePitchShifterPlayback(
     shifter.on("play", (detail) => {
       setCurrentTime(detail.timePlayed);
       savedPercentRef.current = shifter.percentagePlayed;
-      const pct = shifter.percentagePlayed;
-      if (pct >= 95 || pct % 25 < 1) {
-        // #region agent log
-        fetch("http://127.0.0.1:7696/ingest/413f817f-149f-48a6-901c-86e9787dbcfb", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Debug-Session-Id": "c2f93a",
-          },
-          body: JSON.stringify({
-            sessionId: "c2f93a",
-            runId: "pre-fix",
-            hypothesisId: "A",
-            location: "use-pitch-shifter-playback.ts:play",
-            message: "PitchShifter progress",
-            data: {
-              timePlayed: detail.timePlayed,
-              percentagePlayed: pct,
-              shifterDuration: shifter.duration,
-              bufferDuration,
-              tempo: tempoRef.current,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
-      }
     });
 
     shifter.connect(gainRef.current);
@@ -209,30 +152,6 @@ export function usePitchShifterPlayback(
 
         bufferRef.current = audioBuffer;
         setDuration(audioBuffer.duration);
-        // #region agent log
-        fetch("http://127.0.0.1:7696/ingest/413f817f-149f-48a6-901c-86e9787dbcfb", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Debug-Session-Id": "c2f93a",
-          },
-          body: JSON.stringify({
-            sessionId: "c2f93a",
-            runId: "pre-fix",
-            hypothesisId: "D",
-            location: "use-pitch-shifter-playback.ts:decode",
-            message: "Decoded buffer for pitch playback",
-            data: {
-              bufferDuration: audioBuffer.duration,
-              bufferLength: audioBuffer.length,
-              sampleRate: audioBuffer.sampleRate,
-              blobSize: blob.size,
-              blobType: blob.type,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         setReady(true);
       } catch {
         if (!cancelled) setReady(false);

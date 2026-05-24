@@ -157,6 +157,8 @@ export function AudioEditor({ blockId }: { blockId: string }) {
       height: 120,
       waveColor: "#94a3b8",
       progressColor: "#1d4ed8",
+      cursorColor: "#ef4444",
+      cursorWidth: 2,
       normalize: true,
       dragToSeek: false,
       plugins: [regions],
@@ -215,6 +217,30 @@ export function AudioEditor({ blockId }: { blockId: string }) {
       intensity: settings.intensity,
     });
   }, [settings, playback]);
+
+  /** Cursor vertical + zona reproduïda, sincronitzats amb el reproductor SoundTouch */
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (!ws || !playback.ready) return;
+
+    const syncPlayhead = (time: number) => {
+      const total = ws.getDuration();
+      if (total <= 0) return;
+      ws.setTime(Math.min(Math.max(0, time), total));
+    };
+
+    syncPlayhead(playback.currentTime);
+
+    if (!playback.isPlaying) return;
+
+    let rafId = 0;
+    const tick = () => {
+      syncPlayhead(playbackRef.current.currentTime);
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [playback.isPlaying, playback.currentTime, playback.ready]);
 
   const updateSetting = (key: keyof EditorSettings, value: number) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
