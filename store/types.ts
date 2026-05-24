@@ -15,6 +15,8 @@ export interface Block {
   status: BlockStatus;
   durationSeconds: number;
   audioBlob: Blob | null;
+  /** Text del capítol per llegir mentre es grava */
+  scriptText: string;
 }
 
 export interface StudioState {

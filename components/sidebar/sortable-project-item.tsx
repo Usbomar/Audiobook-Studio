@@ -28,6 +28,7 @@ interface SortableProjectItemProps {
   activeBlockId: string | null;
   onToggle: () => void;
   onAddBlock: () => void;
+  onDeleteBlock?: (block: Block) => void;
 }
 
 export function SortableProjectItem({
@@ -38,6 +39,7 @@ export function SortableProjectItem({
   activeBlockId,
   onToggle,
   onAddBlock,
+  onDeleteBlock,
 }: SortableProjectItemProps) {
   const {
     attributes,
@@ -119,6 +121,7 @@ export function SortableProjectItem({
                 block={block}
                 projectId={project.id}
                 isActive={activeBlockId === block.id}
+                onDelete={onDeleteBlock}
               />
             ))}
           </SortableContext>

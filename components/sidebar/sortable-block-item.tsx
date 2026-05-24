@@ -2,7 +2,7 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { Block } from "@/store/types";
@@ -12,12 +12,14 @@ interface SortableBlockItemProps {
   block: Block;
   projectId: string;
   isActive: boolean;
+  onDelete?: (block: Block) => void;
 }
 
 export function SortableBlockItem({
   block,
   projectId,
   isActive,
+  onDelete,
 }: SortableBlockItemProps) {
   const {
     attributes,
@@ -63,6 +65,20 @@ export function SortableBlockItem({
         </button>
         <StatusDot status={block.status} />
         <span className="min-w-0 flex-1 truncate">{block.title}</span>
+        {onDelete && (
+          <button
+            type="button"
+            className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+            aria-label={`Esborrar ${block.title}`}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete(block);
+            }}
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        )}
       </Link>
     </div>
   );

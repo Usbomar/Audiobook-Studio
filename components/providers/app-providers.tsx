@@ -22,7 +22,11 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
 
       useStudioStore.setState({
         projects: snapshot.projects,
-        blocks: snapshot.blocks.map((block) => ({ ...block, audioBlob: null })),
+        blocks: snapshot.blocks.map((block) => ({
+          ...block,
+          audioBlob: null,
+          scriptText: block.scriptText ?? "",
+        })),
       });
 
       for (const block of snapshot.blocks) {

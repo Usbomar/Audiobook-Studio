@@ -6,6 +6,7 @@ export {
 export { saveBlobWithPicker, saveZipWithPicker } from "./file-save";
 export { loadProjectSnapshot, saveProjectSnapshot } from "./project-db";
 export { exportProjectBackup } from "./backup";
+export { removeBlockFromStudio } from "./remove-block";
 
 import { saveBlockAudio } from "./audio-db";
 import { useStudioStore } from "@/store";

@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.esm.js";
+import { Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { registerShortcutHandlers } from "@/lib/shortcuts";
+import { usePitchShifterPlayback } from "@/lib/audio/use-pitch-shifter-playback";
 import { persistEditedBlockAudio } from "@/lib/storage";
 import { getAudioDurationFromBlob } from "@/lib/audio";
 import { useStudioStore } from "@/store";
@@ -34,6 +36,12 @@ const initialSettings: EditorSettings = {
 
 function getSliderValue(value: number | readonly number[]): number {
   return typeof value === "number" ? value : value[0] ?? 0;
+}
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function encodeWav(samples: Float32Array, sampleRate: number): Blob {
@@ -90,17 +98,12 @@ export function AudioEditor({ blockId }: { blockId: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const regionPluginRef = useRef<ReturnType<typeof RegionsPlugin.create> | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const ctxRef = useRef<AudioContext | null>(null);
-  const gainRef = useRef<GainNode | null>(null);
-  const lowRef = useRef<BiquadFilterNode | null>(null);
-  const midRef = useRef<BiquadFilterNode | null>(null);
-  const highRef = useRef<BiquadFilterNode | null>(null);
-  const compRef = useRef<DynamicsCompressorNode | null>(null);
 
   const blob = block?.audioBlob ?? null;
   const blobUrl = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob]);
+
+  const tempo = settings.speed / 100;
+  const playback = usePitchShifterPlayback(blob, tempo, settings.pitch);
 
   useEffect(() => {
     if (!blobUrl || !containerRef.current) return;
@@ -138,62 +141,26 @@ export function AudioEditor({ blockId }: { blockId: string }) {
   }, [blobUrl]);
 
   useEffect(() => {
-    if (!blobUrl) return;
-    if (!audioRef.current) return;
-
-    const audio = audioRef.current;
-    const ctx = ctxRef.current ?? new AudioContext();
-    ctxRef.current = ctx;
-
-    if (!sourceNodeRef.current) {
-      sourceNodeRef.current = ctx.createMediaElementSource(audio);
-      gainRef.current = ctx.createGain();
-      lowRef.current = ctx.createBiquadFilter();
-      lowRef.current.type = "lowshelf";
-      lowRef.current.frequency.value = 200;
-      midRef.current = ctx.createBiquadFilter();
-      midRef.current.type = "peaking";
-      midRef.current.frequency.value = 1000;
-      midRef.current.Q.value = 1;
-      highRef.current = ctx.createBiquadFilter();
-      highRef.current.type = "highshelf";
-      highRef.current.frequency.value = 3500;
-      compRef.current = ctx.createDynamicsCompressor();
-
-      sourceNodeRef.current
-        .connect(gainRef.current)
-        .connect(lowRef.current)
-        .connect(midRef.current)
-        .connect(highRef.current)
-        .connect(compRef.current)
-        .connect(ctx.destination);
-    }
-
-    audio.src = blobUrl;
-  }, [blobUrl]);
-
-  useEffect(() => {
-    if (!audioRef.current) return;
-    if (!gainRef.current || !lowRef.current || !midRef.current || !highRef.current || !compRef.current) return;
-
-    gainRef.current.gain.value = settings.volume / 100;
-
-    const pitchRate = Math.pow(2, settings.pitch / 12);
-    audioRef.current.playbackRate = (settings.speed / 100) * pitchRate;
-    (audioRef.current as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = false;
-
-    lowRef.current.gain.value = settings.bass;
-    midRef.current.gain.value = settings.mid;
-    highRef.current.gain.value = settings.treble;
-
-    const ratio = 1 + settings.intensity / 12;
-    compRef.current.ratio.value = ratio;
-    compRef.current.threshold.value = -24 - settings.intensity;
-  }, [settings]);
+    playback.setVolume(settings.volume / 100);
+    playback.setEq({
+      bass: settings.bass,
+      mid: settings.mid,
+      treble: settings.treble,
+      intensity: settings.intensity,
+    });
+  }, [settings, playback]);
 
   const updateSetting = (key: keyof EditorSettings, value: number) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
+
+  const togglePlayPause = () => {
+    if (playback.isPlaying) playback.pause();
+    else void playback.play();
+  };
+
+  const togglePlayPauseRef = useRef(togglePlayPause);
+  togglePlayPauseRef.current = togglePlayPause;
 
   const cutSelection = async () => {
     if (!blob || !selection || selection.end <= selection.start) return;
@@ -246,10 +213,14 @@ export function AudioEditor({ blockId }: { blockId: string }) {
   useEffect(() => {
     return registerShortcutHandlers({
       onUndo: () => void undoRef.current(),
+      onPlayPause: () => togglePlayPauseRef.current(),
     });
   }, []);
 
   if (!blob) return null;
+
+  const progressPercent =
+    playback.duration > 0 ? (playback.currentTime / playback.duration) * 100 : 0;
 
   return (
     <section className="mt-8 space-y-4 rounded-xl border border-border/70 bg-white p-5">
@@ -270,7 +241,39 @@ export function AudioEditor({ blockId }: { blockId: string }) {
 
       <div className="space-y-3 rounded-lg border border-border/60 p-4">
         <div ref={containerRef} />
-        <audio ref={audioRef} controls className="w-full" />
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            disabled={!playback.ready}
+            onClick={togglePlayPause}
+          >
+            {playback.isPlaying ? (
+              <>
+                <Pause className="size-4" />
+                Pausa
+              </>
+            ) : (
+              <>
+                <Play className="size-4 fill-current" />
+                Reproduir
+              </>
+            )}
+          </Button>
+          <span className="font-mono text-sm tabular-nums text-muted-foreground">
+            {formatTime(playback.currentTime)} / {formatTime(playback.duration)}
+          </span>
+        </div>
+        <Slider
+          min={0}
+          max={100}
+          step={0.5}
+          value={[progressPercent]}
+          disabled={!playback.ready || playback.duration === 0}
+          onValueChange={(v) => playback.seekPercent(getSliderValue(v))}
+        />
         <div>
           <p className="mb-1 text-xs text-muted-foreground">Zoom</p>
           <Slider
@@ -303,15 +306,17 @@ export function AudioEditor({ blockId }: { blockId: string }) {
         />
         <SliderControl
           label={`Velocitat (${settings.speed}%)`}
+          hint="Canvia el ritme sense alterar el to de la veu"
           min={60}
           max={140}
           value={settings.speed}
           onChange={(value) => updateSetting("speed", value)}
         />
         <SliderControl
-          label={`Pitch (${settings.pitch})`}
-          min={-6}
-          max={6}
+          label={`To de veu (${settings.pitch > 0 ? "+" : ""}${settings.pitch} semitons)`}
+          hint="Aguts i greus sense canviar la durada"
+          min={-12}
+          max={12}
           step={1}
           value={settings.pitch}
           onChange={(value) => updateSetting("pitch", value)}
@@ -360,6 +365,7 @@ export function AudioEditor({ blockId }: { blockId: string }) {
 
 function SliderControl({
   label,
+  hint,
   min,
   max,
   step = 1,
@@ -367,6 +373,7 @@ function SliderControl({
   onChange,
 }: {
   label: string;
+  hint?: string;
   min: number;
   max: number;
   step?: number;
@@ -376,6 +383,7 @@ function SliderControl({
   return (
     <div className="space-y-1">
       <p className="text-sm font-medium">{label}</p>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       <Slider
         min={min}
         max={max}
@@ -386,4 +394,3 @@ function SliderControl({
     </div>
   );
 }
-

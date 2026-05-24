@@ -14,6 +14,7 @@ interface StudioActions {
   ) => string;
   deleteProject: (projectId: string) => void;
   addBlock: (projectId: string, title: string) => string;
+  deleteBlock: (blockId: string) => void;
   updateBlock: (blockId: string, updates: BlockUpdate) => void;
   reorderBlocks: (projectId: string, orderedBlockIds: string[]) => void;
   reorderProjects: (orderedProjectIds: string[]) => void;
@@ -74,6 +75,7 @@ export const useStudioStore = create<StudioStore>((set, get) => ({
       status: "empty",
       durationSeconds: 0,
       audioBlob: null,
+      scriptText: "",
     };
     set((state) => ({
       blocks: [...state.blocks, block],
@@ -81,6 +83,26 @@ export const useStudioStore = create<StudioStore>((set, get) => ({
       activeBlockId: id,
     }));
     return id;
+  },
+
+  deleteBlock: (blockId) => {
+    set((state) => {
+      const target = state.blocks.find((b) => b.id === blockId);
+      if (!target) return state;
+
+      const remaining = state.blocks.filter((b) => b.id !== blockId);
+      const reordered = getBlocksForProject(remaining, target.projectId).map(
+        (block, index) => ({ ...block, order: index })
+      );
+      const other = remaining.filter((b) => b.projectId !== target.projectId);
+      const blocks = [...other, ...reordered];
+
+      return {
+        blocks,
+        activeBlockId:
+          state.activeBlockId === blockId ? null : state.activeBlockId,
+      };
+    });
   },
 
   updateBlock: (blockId, updates) => {

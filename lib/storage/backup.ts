@@ -19,10 +19,20 @@ export async function exportProjectBackup(
       order: block.order,
       status: block.status,
       durationSeconds: block.durationSeconds,
+      scriptText: block.scriptText ?? "",
     })),
   };
 
   zip.file("project.json", JSON.stringify(manifest, null, 2));
+
+  const scriptsFolder = zip.folder("scripts");
+  if (scriptsFolder) {
+    for (const block of blocks) {
+      const text = block.scriptText?.trim();
+      if (!text) continue;
+      scriptsFolder.file(`${block.id}.txt`, text);
+    }
+  }
 
   const audioFolder = zip.folder("audio");
   if (audioFolder) {

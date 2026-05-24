@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { Trash2 } from "lucide-react";
+import { DeleteBlockDialog } from "@/components/blocks/delete-block-dialog";
 import { Recorder } from "@/components/recorder";
 import { AudioEditor } from "@/components/editor";
 import { Exporter } from "@/components/exporter";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { removeBlockFromStudio } from "@/lib/storage";
 import { useStudioStore } from "@/store";
 import { getBlocksForProject } from "@/store";
 
@@ -18,6 +22,9 @@ function formatDuration(seconds: number): string {
 
 export default function StudioPage() {
   const params = useParams<{ projectId: string; blockId: string }>();
+  const router = useRouter();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const setActiveProject = useStudioStore((s) => s.setActiveProject);
   const setActiveBlock = useStudioStore((s) => s.setActiveBlock);
   const project = useStudioStore((s) =>
@@ -76,9 +83,41 @@ export default function StudioPage() {
           </p>
           <Badge variant="secondary">{statusLabel}</Badge>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={() => setDeleteOpen(true)}
+        >
+          <Trash2 className="size-4" />
+          Esborrar bloc
+        </Button>
       </header>
 
-      <Recorder blockId={block.id} className="max-w-3xl" />
+      <DeleteBlockDialog
+        block={block}
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        isDeleting={isDeleting}
+        onConfirm={() => {
+          setIsDeleting(true);
+          void removeBlockFromStudio(block.id)
+            .then(() => {
+              const remaining = projectBlocks.filter((b) => b.id !== block.id);
+              if (remaining.length > 0) {
+                router.push(`/studio/${project.id}/${remaining[0].id}`);
+              } else {
+                router.push("/");
+              }
+            })
+            .finally(() => {
+              setIsDeleting(false);
+              setDeleteOpen(false);
+            });
+        }}
+      />
+
+      <Recorder blockId={block.id} />
       <AudioEditor blockId={block.id} />
       <Exporter projectId={project.id} defaultBlockId={block.id} />
     </div>

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useRecorder } from "./use-recorder";
 import { VuMeter } from "./vu-meter";
+import { ScriptPanel } from "./script-panel";
 import { WaveformView } from "./waveform-view";
 
 function formatElapsed(ms: number): string {
@@ -75,6 +76,8 @@ export function Recorder({ blockId, className }: RecorderProps) {
 
   return (
     <section className={cn("space-y-6", className)}>
+      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+        <div className="space-y-6 min-w-0">
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
@@ -207,6 +210,9 @@ export function Recorder({ blockId, className }: RecorderProps) {
           </div>
         </>
       )}
+        </div>
+        <ScriptPanel blockId={blockId} className="lg:sticky lg:top-4" />
+      </div>
     </section>
   );
 }

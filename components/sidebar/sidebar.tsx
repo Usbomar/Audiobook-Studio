@@ -28,6 +28,8 @@ import {
   useStudioStore,
 } from "@/store";
 import type { Block, Project } from "@/store/types";
+import { DeleteBlockDialog } from "@/components/blocks/delete-block-dialog";
+import { removeBlockFromStudio } from "@/lib/storage";
 import { NewProjectDialog } from "./new-project-dialog";
 import { SortableProjectItem } from "./sortable-project-item";
 import { StatusDot } from "./status-dot";
@@ -50,6 +52,8 @@ export function Sidebar() {
     string | null
   >(null);
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [blockToDelete, setBlockToDelete] = useState<Block | null>(null);
+  const [isDeletingBlock, setIsDeletingBlock] = useState(false);
   const [activeDrag, setActiveDrag] = useState<{
     type: "project" | "block";
     item: Project | Block;
@@ -80,6 +84,30 @@ export function Sidebar() {
 
   const handleCreateProject = (title: string) => {
     addProject(title);
+  };
+
+  const handleDeleteBlock = async () => {
+    if (!blockToDelete) return;
+    setIsDeletingBlock(true);
+    try {
+      const { projectId, id } = blockToDelete;
+      await removeBlockFromStudio(id);
+      setBlockToDelete(null);
+
+      if (activeBlockId === id) {
+        const remaining = getBlocksForProject(
+          useStudioStore.getState().blocks,
+          projectId
+        );
+        if (remaining.length > 0) {
+          router.push(`/studio/${projectId}/${remaining[0].id}`);
+        } else {
+          router.push("/");
+        }
+      }
+    } finally {
+      setIsDeletingBlock(false);
+    }
   };
 
   const handleCreateBlock = (title: string) => {
@@ -195,6 +223,7 @@ export function Sidebar() {
                       activeBlockId={activeBlockId}
                       onToggle={() => toggleExpanded(project.id)}
                       onAddBlock={() => setBlockDialogProjectId(project.id)}
+                      onDeleteBlock={setBlockToDelete}
                     />
                   ))
                 )}
@@ -222,6 +251,14 @@ export function Sidebar() {
         open={projectDialogOpen}
         onOpenChange={setProjectDialogOpen}
         onSubmit={handleCreateProject}
+      />
+
+      <DeleteBlockDialog
+        block={blockToDelete}
+        open={blockToDelete !== null}
+        onOpenChange={(open) => !open && setBlockToDelete(null)}
+        onConfirm={() => void handleDeleteBlock()}
+        isDeleting={isDeletingBlock}
       />
 
       <NewProjectDialog
