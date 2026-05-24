@@ -32,7 +32,7 @@ export function DeleteBlockDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Esborrar bloc</DialogTitle>
+          <DialogTitle>Esborrar capítol</DialogTitle>
           <DialogDescription>
             {block ? (
               <>
@@ -42,7 +42,7 @@ export function DeleteBlockDialog({
                   : " Aquesta acció no es pot desfer."}
               </>
             ) : (
-              "Selecciona un bloc per esborrar."
+              "Selecciona un capítol per esborrar."
             )}
           </DialogDescription>
         </DialogHeader>

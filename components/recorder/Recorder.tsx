@@ -156,7 +156,7 @@ export function Recorder({ blockId, className }: RecorderProps) {
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/80 bg-white/60 px-6 py-16 text-center">
               <Mic className="mb-3 size-10 text-muted-foreground/60" />
               <p className="text-sm text-muted-foreground">
-                Prem el botó vermell per començar a gravar aquest bloc.
+                Prem el botó vermell per començar a gravar aquest capítol.
               </p>
             </div>
           )}

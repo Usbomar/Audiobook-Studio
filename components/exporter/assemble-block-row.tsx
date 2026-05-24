@@ -59,7 +59,7 @@ export function AssembleBlockRow({
       <button
         type="button"
         className="cursor-grab touch-none text-muted-foreground active:cursor-grabbing"
-        aria-label="Arrossegar bloc"
+        aria-label="Arrossegar capítol"
         {...attributes}
         {...listeners}
       >

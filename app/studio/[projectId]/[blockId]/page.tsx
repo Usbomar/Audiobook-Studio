@@ -48,7 +48,7 @@ export default function StudioPage() {
   if (!project || !block || block.projectId !== project.id) {
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <p className="text-muted-foreground">Bloc no trobat.</p>
+        <p className="text-muted-foreground">Capítol no trobat.</p>
       </div>
     );
   }
@@ -71,13 +71,13 @@ export default function StudioPage() {
             href={`/studio/${project.id}/assemble`}
             className="inline-block text-sm text-sky-700 hover:underline"
           >
-            Muntatge de blocs →
+            Muntatge de capítols →
           </Link>
           <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
             {block.title}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {project.title} · Bloc {blockIndex} de {projectBlocks.length}
+            {project.title} · Capítol {blockIndex} de {projectBlocks.length}
             {block.durationSeconds > 0 &&
               ` · ${formatDuration(block.durationSeconds)} gravats`}
           </p>
@@ -90,7 +90,7 @@ export default function StudioPage() {
           onClick={() => setDeleteOpen(true)}
         >
           <Trash2 className="size-4" />
-          Esborrar bloc
+          Esborrar capítol
         </Button>
       </header>
 

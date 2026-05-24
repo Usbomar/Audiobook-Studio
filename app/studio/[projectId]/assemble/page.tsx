@@ -190,17 +190,17 @@ export default function AssemblePage() {
           ← Tornar a l&apos;inici
         </Link>
         <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
-          Muntatge de blocs
+          Muntatge de capítols
         </h1>
         <p className="text-sm text-muted-foreground">
-          {project.title} · {selectedBlocks.length} blocs seleccionats · Durada
+          {project.title} · {selectedBlocks.length} capítols seleccionats · Durada
           total: {formatTotalDuration(totalDuration)}
         </p>
       </header>
 
       <div className="mb-6 grid gap-4 rounded-xl border border-border/60 bg-white p-4 md:grid-cols-2">
         <div className="space-y-2">
-          <p className="text-sm font-medium">Silenci entre blocs</p>
+          <p className="text-sm font-medium">Silenci entre capítols</p>
           <div className="flex gap-2">
             {([0, 0.5, 1] as AssemblyGapSeconds[]).map((gap) => (
               <Button
@@ -273,7 +273,7 @@ export default function AssemblePage() {
 
       {orderedBlocks.length === 0 ? (
         <p className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-          Encara no hi ha blocs gravats per muntar. Grava almenys un bloc abans.
+          Encara no hi ha capítols gravats per muntar. Grava almenys un capítol abans.
         </p>
       ) : (
         <DndContext

@@ -125,13 +125,13 @@ export async function exportMergedBlobs(
   gapSeconds = 0,
   onProgress?: (progress: ExportProgress) => void
 ): Promise<Blob> {
-  if (blobs.length === 0) throw new Error("Cap bloc seleccionat per fusionar.");
+  if (blobs.length === 0) throw new Error("Cap capítol seleccionat per fusionar.");
   if (blobs.length === 1) {
     return exportSingleBlob(blobs[0], format, metadata, onProgress);
   }
 
   const ffmpeg = await getFFmpeg();
-  onProgress?.({ ratio: 0.05, message: "Preparant blocs…" });
+  onProgress?.({ ratio: 0.05, message: "Preparant capítols…" });
 
   const concatFiles: string[] = [];
   for (let i = 0; i < blobs.length; i++) {

@@ -56,7 +56,7 @@ export function SortableBlockItem({
         <button
           type="button"
           className="cursor-grab touch-none p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
-          aria-label="Arrossegar bloc"
+          aria-label="Arrossegar capítol"
           {...attributes}
           {...listeners}
           onClick={(e) => e.preventDefault()}

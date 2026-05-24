@@ -265,9 +265,9 @@ export function Sidebar() {
         open={blockDialogProjectId !== null}
         onOpenChange={(open) => !open && setBlockDialogProjectId(null)}
         onSubmit={handleCreateBlock}
-        title="Nou bloc"
+        title="Nou capítol"
         submitLabel="Afegir"
-        placeholder="Títol del capítol o bloc"
+        placeholder="Títol del capítol"
       />
     </>
   );

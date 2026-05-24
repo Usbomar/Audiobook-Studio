@@ -10,7 +10,7 @@ export function WelcomeScreen({ onStart }: { onStart: () => void }) {
     {
       icon: BookOpen,
       title: "1. Organitza",
-      text: "Crea projectes i blocs (capítols) des de la barra lateral.",
+      text: "Crea projectes i capítols des de la barra lateral.",
     },
     {
       icon: Mic,
@@ -20,7 +20,7 @@ export function WelcomeScreen({ onStart }: { onStart: () => void }) {
     {
       icon: Wand2,
       title: "3. Exporta",
-      text: "Edita, munta els blocs i exporta en MP3, AAC o FLAC.",
+      text: "Edita, munta els capítols i exporta en MP3, AAC o FLAC.",
     },
   ];
 

@@ -104,7 +104,7 @@ export function SortableProjectItem({
             {project.title}
           </p>
           <p className="text-xs text-muted-foreground">
-            {summary.total} blocs · {summary.exported} exportats
+            {summary.total} capítols · {summary.exported} exportats
           </p>
         </button>
       </div>
@@ -140,7 +140,7 @@ export function SortableProjectItem({
             onClick={onAddBlock}
           >
             <Plus className="size-3.5" />
-            Afegir bloc
+            Afegir capítol
           </Button>
         </div>
       )}

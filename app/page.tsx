@@ -23,7 +23,7 @@ export default function Home() {
         Audiobook Studio
       </h1>
       <p className="max-w-md text-muted-foreground">
-        Selecciona un bloc a la barra lateral o crea un projecte nou per
+        Selecciona un capítol a la barra lateral o crea un projecte nou per
         començar a gravar.
       </p>
     </div>

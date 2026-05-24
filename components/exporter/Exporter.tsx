@@ -80,9 +80,9 @@ export function Exporter({
     try {
       if (mode === "single") {
         const block = exportableBlocks.find((b) => b.id === activeBlockId);
-        if (!block) throw new Error("Selecciona un bloc per exportar.");
+        if (!block) throw new Error("Selecciona un capítol per exportar.");
         const blob = await resolveBlob(block);
-        if (!blob) throw new Error("No s'ha trobat l'àudio del bloc.");
+        if (!blob) throw new Error("No s'ha trobat l'àudio del capítol.");
 
         const output = await exportSingleBlob(
           blob,
@@ -111,7 +111,7 @@ export function Exporter({
           const blob = await resolveBlob(block);
           if (blob) blobs.push(blob);
         }
-        if (blobs.length === 0) throw new Error("Cap bloc amb àudio seleccionat.");
+        if (blobs.length === 0) throw new Error("Cap capítol amb àudio seleccionat.");
 
         const output = await exportMergedBlobs(
           blobs,
@@ -169,7 +169,7 @@ export function Exporter({
 
       await saveBlobWithPicker(
         zipBlob,
-        defaultFilename(project.title, format, "-blocs").replace(
+        defaultFilename(project.title, format, "-capitols").replace(
           /\.[^.]+$/,
           ".zip"
         ),
@@ -230,9 +230,9 @@ export function Exporter({
       <div className="flex flex-wrap gap-2">
         {(
           [
-            ["single", "Bloc individual"],
+            ["single", "Capítol individual"],
             ["merge", "Fusionar seleccionats"],
-            ["zip", "ZIP (1 fitxer/bloc)"],
+            ["zip", "ZIP (1 fitxer/capítol)"],
           ] as const
         ).map(([value, label]) => (
           <Button
