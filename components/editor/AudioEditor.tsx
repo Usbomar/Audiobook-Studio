@@ -1,37 +1,35 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.esm.js";
-import { Pause, Play } from "lucide-react";
+import { ClipboardPaste, Copy, Pause, Play, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { registerShortcutHandlers } from "@/lib/shortcuts";
+import {
+  DEFAULT_EDITOR_SETTINGS,
+  PITCH_OPTIONS,
+  type EditorSettings,
+} from "@/lib/audio/editor-settings";
 import { usePitchShifterPlayback } from "@/lib/audio/use-pitch-shifter-playback";
-import { persistEditedBlockAudio } from "@/lib/storage";
+import {
+  decodeBlobToMonoSamples,
+  deleteSampleRange,
+  encodeWav,
+  extractSampleRange,
+  insertSamplesAt,
+  timeRangeToSampleRange,
+} from "@/lib/audio/wav-utils";
+import { persistEditedClipAudio } from "@/lib/storage";
 import { getAudioDurationFromBlob } from "@/lib/audio";
-import { useStudioStore } from "@/store";
+import { getActiveClip, useStudioStore } from "@/store";
 
 const MAX_HISTORY = 20;
 
-type EditorSettings = {
-  volume: number;
-  speed: number;
-  pitch: number;
-  bass: number;
-  mid: number;
-  treble: number;
-  intensity: number;
-};
-
-const initialSettings: EditorSettings = {
-  volume: 100,
-  speed: 100,
-  pitch: 0,
-  bass: 0,
-  mid: 0,
-  treble: 0,
-  intensity: 0,
+type AudioClipboard = {
+  samples: Float32Array;
+  sampleRate: number;
 };
 
 function getSliderValue(value: number | readonly number[]): number {
@@ -44,66 +42,111 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function encodeWav(samples: Float32Array, sampleRate: number): Blob {
-  const bytesPerSample = 2;
-  const dataSize = samples.length * bytesPerSample;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-  let offset = 0;
-  const write = (text: string) => {
-    for (let i = 0; i < text.length; i++) view.setUint8(offset++, text.charCodeAt(i));
-  };
-
-  write("RIFF");
-  view.setUint32(offset, 36 + dataSize, true);
-  offset += 4;
-  write("WAVEfmt ");
-  view.setUint32(offset, 16, true);
-  offset += 4;
-  view.setUint16(offset, 1, true);
-  offset += 2;
-  view.setUint16(offset, 1, true);
-  offset += 2;
-  view.setUint32(offset, sampleRate, true);
-  offset += 4;
-  view.setUint32(offset, sampleRate * bytesPerSample, true);
-  offset += 4;
-  view.setUint16(offset, bytesPerSample, true);
-  offset += 2;
-  view.setUint16(offset, 16, true);
-  offset += 2;
-  write("data");
-  view.setUint32(offset, dataSize, true);
-  offset += 4;
-
-  for (let i = 0; i < samples.length; i++) {
-    const sample = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-    offset += 2;
-  }
-
-  return new Blob([buffer], { type: "audio/wav" });
+function formatPitchLabel(semitones: number): string {
+  if (semitones === 0) return "0 (original)";
+  return semitones > 0 ? `+${semitones}` : String(semitones);
 }
 
 export function AudioEditor({ blockId }: { blockId: string }) {
   const block = useStudioStore((s) => s.blocks.find((b) => b.id === blockId));
-  const updateBlock = useStudioStore((s) => s.updateBlock);
-  const [settings, setSettings] = useState<EditorSettings>(initialSettings);
+  const clips = useStudioStore((s) => s.clips);
+  const updateClip = useStudioStore((s) => s.updateClip);
+  const activeClip = block ? getActiveClip(clips, block) : undefined;
+  const clipId = activeClip?.id;
+
+  const [settings, setSettings] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS);
   const [advanced, setAdvanced] = useState(false);
   const [history, setHistory] = useState<Blob[]>([]);
   const [future, setFuture] = useState<Blob[]>([]);
-  const [selection, setSelection] = useState<{ start: number; end: number } | null>(null);
+  const [selection, setSelection] = useState<{ start: number; end: number } | null>(
+    null
+  );
+  const [clipboard, setClipboard] = useState<AudioClipboard | null>(null);
   const [zoom, setZoom] = useState(1);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const regionPluginRef = useRef<ReturnType<typeof RegionsPlugin.create> | null>(null);
+  const disableDragSelectionRef = useRef<(() => void) | null>(null);
+  const clipboardRef = useRef(clipboard);
+  clipboardRef.current = clipboard;
 
-  const blob = block?.audioBlob ?? null;
+  const blob = activeClip?.audioBlob ?? null;
   const blobUrl = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob]);
+
+  useEffect(() => {
+    if (!activeClip) return;
+    setSettings(activeClip.editorSettings);
+    setHistory([]);
+    setFuture([]);
+    setSelection(null);
+  }, [activeClip]);
+
+  useEffect(() => {
+    if (!clipId) return;
+    const timer = window.setTimeout(() => {
+      updateClip(clipId, { editorSettings: settings });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [clipId, settings, updateClip]);
 
   const tempo = settings.speed / 100;
   const playback = usePitchShifterPlayback(blob, tempo, settings.pitch);
+  const playbackRef = useRef(playback);
+  playbackRef.current = playback;
+
+  const applySamples = useCallback(
+    async (samples: Float32Array, sampleRate: number) => {
+      if (!blob || !clipId) return;
+      const newBlob = encodeWav(samples, sampleRate);
+      setHistory((prev) => [...prev.slice(-MAX_HISTORY + 1), blob]);
+      setFuture([]);
+      const duration = await getAudioDurationFromBlob(newBlob);
+      await persistEditedClipAudio(
+        clipId,
+        blockId,
+        newBlob,
+        Math.max(1, Math.round(duration))
+      );
+      setSelection(null);
+      regionPluginRef.current?.clearRegions();
+      playback.pause();
+      playback.seekPercent(0);
+    },
+    [blob, blockId, clipId, playback]
+  );
+
+  const setupDragSelection = useCallback(() => {
+    const regions = regionPluginRef.current;
+    if (!regions) return;
+    disableDragSelectionRef.current?.();
+    disableDragSelectionRef.current = regions.enableDragSelection({
+      color: "rgba(37, 99, 235, 0.35)",
+      drag: true,
+      resize: true,
+    });
+  }, []);
+
+  const syncRegionToSelection = useCallback((start: number, end: number) => {
+    if (end > start + 0.02) setSelection({ start, end });
+  }, []);
+
+  const createRegionAtPlayhead = useCallback((durationSec = 3) => {
+    const regions = regionPluginRef.current;
+    if (!regions || playbackRef.current.duration <= 0) return;
+
+    const start = Math.max(0, playbackRef.current.currentTime);
+    const end = Math.min(playbackRef.current.duration, start + durationSec);
+    regions.clearRegions();
+    const region = regions.addRegion({
+      start,
+      end,
+      color: "rgba(37, 99, 235, 0.35)",
+      drag: true,
+      resize: true,
+    });
+    syncRegionToSelection(region.start, region.end);
+  }, [syncRegionToSelection]);
 
   useEffect(() => {
     if (!blobUrl || !containerRef.current) return;
@@ -115,24 +158,47 @@ export function AudioEditor({ blockId }: { blockId: string }) {
       waveColor: "#94a3b8",
       progressColor: "#1d4ed8",
       normalize: true,
-      dragToSeek: true,
+      dragToSeek: false,
       plugins: [regions],
     });
     regionPluginRef.current = regions;
     wsRef.current = ws;
 
-    ws.on("decode", () => ws.zoom(zoom * 20));
+    const onReady = () => {
+      ws.zoom(zoom * 20);
+      setupDragSelection();
+    };
+
+    ws.on("ready", onReady);
+    ws.on("decode", onReady);
+
+    regions.on("region-created", (region) => {
+      regions.getRegions().forEach((r) => {
+        if (r !== region) r.remove();
+      });
+      syncRegionToSelection(region.start, region.end);
+    });
     regions.on("region-updated", (region) =>
-      setSelection({ start: region.start, end: region.end })
+      syncRegionToSelection(region.start, region.end)
     );
     regions.on("region-removed", () => setSelection(null));
 
+    ws.on("click", (relativeX) => {
+      const duration = ws.getDuration();
+      if (duration > 0 && typeof relativeX === "number") {
+        const time = relativeX * duration;
+        playbackRef.current.seekPercent((time / duration) * 100);
+      }
+    });
+
     return () => {
+      disableDragSelectionRef.current?.();
+      disableDragSelectionRef.current = null;
       ws.destroy();
       wsRef.current = null;
       regionPluginRef.current = null;
     };
-  }, [blobUrl, zoom]);
+  }, [blobUrl, zoom, setupDragSelection, syncRegionToSelection]);
 
   useEffect(() => {
     return () => {
@@ -162,49 +228,71 @@ export function AudioEditor({ blockId }: { blockId: string }) {
   const togglePlayPauseRef = useRef(togglePlayPause);
   togglePlayPauseRef.current = togglePlayPause;
 
-  const cutSelection = async () => {
+  const copySelection = async () => {
     if (!blob || !selection || selection.end <= selection.start) return;
-    const ctx = new AudioContext();
-    try {
-      const decoded = await ctx.decodeAudioData((await blob.arrayBuffer()).slice(0));
-      const samples = decoded.getChannelData(0);
-      const start = Math.floor(selection.start * decoded.sampleRate);
-      const end = Math.floor(selection.end * decoded.sampleRate);
+    const { samples, sampleRate } = await decodeBlobToMonoSamples(blob);
+    const { start, end } = timeRangeToSampleRange(
+      selection.start,
+      selection.end,
+      sampleRate
+    );
+    setClipboard({
+      samples: extractSampleRange(samples, start, end),
+      sampleRate,
+    });
+  };
 
-      const result = new Float32Array(samples.length - (end - start));
-      result.set(samples.subarray(0, start), 0);
-      result.set(samples.subarray(end), start);
+  const deleteSelection = async () => {
+    if (!blob || !selection || selection.end <= selection.start) return;
+    const { samples, sampleRate } = await decodeBlobToMonoSamples(blob);
+    const { start, end } = timeRangeToSampleRange(
+      selection.start,
+      selection.end,
+      sampleRate
+    );
+    await applySamples(deleteSampleRange(samples, start, end), sampleRate);
+  };
 
-      const cutBlob = encodeWav(result, decoded.sampleRate);
-      setHistory((prev) => [...prev.slice(-MAX_HISTORY + 1), blob]);
-      setFuture([]);
-
-      const duration = await getAudioDurationFromBlob(cutBlob);
-      await persistEditedBlockAudio(blockId, cutBlob, Math.max(1, Math.round(duration)));
-      updateBlock(blockId, { status: "edited" });
-      setSelection(null);
-      regionPluginRef.current?.clearRegions();
-    } finally {
-      await ctx.close();
+  const pasteAtPlayhead = async () => {
+    const clip = clipboardRef.current;
+    if (!blob || !clip) return;
+    const { samples, sampleRate } = await decodeBlobToMonoSamples(blob);
+    if (clip.sampleRate !== sampleRate) {
+      return;
     }
+    const index = Math.floor(playback.currentTime * sampleRate);
+    await applySamples(
+      insertSamplesAt(samples, index, clip.samples),
+      sampleRate
+    );
   };
 
   const undo = async () => {
-    if (!blob || history.length === 0) return;
+    if (!blob || !clipId || history.length === 0) return;
     const previous = history[history.length - 1];
     setHistory((prev) => prev.slice(0, -1));
     setFuture((prev) => [blob, ...prev].slice(0, MAX_HISTORY));
     const duration = await getAudioDurationFromBlob(previous);
-    await persistEditedBlockAudio(blockId, previous, Math.max(1, Math.round(duration)));
+    await persistEditedClipAudio(
+      clipId,
+      blockId,
+      previous,
+      Math.max(1, Math.round(duration))
+    );
   };
 
   const redo = async () => {
-    if (future.length === 0 || !blob) return;
+    if (!clipId || future.length === 0 || !blob) return;
     const next = future[0];
     setFuture((prev) => prev.slice(1));
     setHistory((prev) => [...prev.slice(-MAX_HISTORY + 1), blob]);
     const duration = await getAudioDurationFromBlob(next);
-    await persistEditedBlockAudio(blockId, next, Math.max(1, Math.round(duration)));
+    await persistEditedClipAudio(
+      clipId,
+      blockId,
+      next,
+      Math.max(1, Math.round(duration))
+    );
   };
 
   const undoRef = useRef(undo);
@@ -217,7 +305,7 @@ export function AudioEditor({ blockId }: { blockId: string }) {
     });
   }, []);
 
-  if (!blob) return null;
+  if (!blob || !activeClip) return null;
 
   const progressPercent =
     playback.duration > 0 ? (playback.currentTime / playback.duration) * 100 : 0;
@@ -225,7 +313,10 @@ export function AudioEditor({ blockId }: { blockId: string }) {
   return (
     <section className="mt-8 space-y-4 rounded-xl border border-border/70 bg-white p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Editor d&apos;àudio</h2>
+        <div>
+          <h2 className="text-lg font-semibold">Editor d&apos;àudio</h2>
+          <p className="text-sm text-muted-foreground">{activeClip.title}</p>
+        </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => setAdvanced(!advanced)}>
             {advanced ? "Mode simple" : "Mode avançat"}
@@ -240,6 +331,20 @@ export function AudioEditor({ blockId }: { blockId: string }) {
       </div>
 
       <div className="space-y-3 rounded-lg border border-border/60 p-4">
+        <p className="text-xs text-muted-foreground">
+          Arrossega sobre la forma d&apos;ona per marcar un tram (zona blava), o
+          fes servir «Selecció al cursor». Clica on vulguis enganxar i prem
+          «Enganxar».
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!playback.ready}
+          onClick={() => createRegionAtPlayhead(3)}
+        >
+          Selecció al cursor (3s)
+        </Button>
         <div ref={containerRef} />
         <div className="flex flex-wrap items-center gap-3">
           <Button
@@ -284,13 +389,45 @@ export function AudioEditor({ blockId }: { blockId: string }) {
             onValueChange={(v) => setZoom(getSliderValue(v) || 1)}
           />
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={cutSelection} disabled={!selection}>
-            Retallar selecció
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={!selection}
+            onClick={() => void copySelection()}
+          >
+            <Copy className="size-3.5" />
+            Copiar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={!clipboard}
+            onClick={() => void pasteAtPlayhead()}
+          >
+            <ClipboardPaste className="size-3.5" />
+            Enganxar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={!selection}
+            onClick={() => void deleteSelection()}
+          >
+            <Trash2 className="size-3.5" />
+            Esborrar tram
           </Button>
           {selection && (
-            <p className="text-sm text-muted-foreground">
-              {selection.start.toFixed(2)}s - {selection.end.toFixed(2)}s
+            <p className="self-center text-sm text-muted-foreground">
+              {selection.start.toFixed(2)}s – {selection.end.toFixed(2)}s
+            </p>
+          )}
+          {clipboard && (
+            <p className="self-center text-xs text-muted-foreground">
+              Portaretalls: {(clipboard.samples.length / clipboard.sampleRate).toFixed(1)}s
             </p>
           )}
         </div>
@@ -306,21 +443,32 @@ export function AudioEditor({ blockId }: { blockId: string }) {
         />
         <SliderControl
           label={`Velocitat (${settings.speed}%)`}
-          hint="Canvia el ritme sense alterar el to de la veu"
-          min={60}
-          max={140}
+          hint="Canvia el ritme sense alterar el to de la veu (previsualització)"
+          min={50}
+          max={200}
           value={settings.speed}
           onChange={(value) => updateSetting("speed", value)}
         />
-        <SliderControl
-          label={`To de veu (${settings.pitch > 0 ? "+" : ""}${settings.pitch} semitons)`}
-          hint="Aguts i greus sense canviar la durada"
-          min={-12}
-          max={12}
-          step={1}
-          value={settings.pitch}
-          onChange={(value) => updateSetting("pitch", value)}
-        />
+        <div className="space-y-1">
+          <label htmlFor="pitch-select" className="text-sm font-medium">
+            To de veu (semitons)
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Aguts i greus; s&apos;aplica a l&apos;exportació
+          </p>
+          <select
+            id="pitch-select"
+            className="h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
+            value={settings.pitch}
+            onChange={(e) => updateSetting("pitch", Number(e.target.value))}
+          >
+            {PITCH_OPTIONS.map((n) => (
+              <option key={n} value={n}>
+                {formatPitchLabel(n)}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {advanced && (

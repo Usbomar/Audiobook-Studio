@@ -12,7 +12,7 @@ import {
   type ExportFormat,
   type ExportProgress,
 } from "@/lib/audio/ffmpeg-export";
-import { loadBlockAudio } from "@/lib/storage";
+import { resolveBlockExportBlob } from "@/lib/storage";
 import { saveBlobWithPicker } from "@/lib/storage/file-save";
 import { getBlocksForProject, useStudioStore } from "@/store";
 import type { Block } from "@/store/types";
@@ -21,10 +21,6 @@ type ExportMode = "single" | "merge" | "zip";
 
 function isExportable(block: Block): boolean {
   return block.status !== "empty" && block.durationSeconds > 0;
-}
-
-async function resolveBlob(block: Block): Promise<Blob | null> {
-  return block.audioBlob ?? (await loadBlockAudio(block.id));
 }
 
 export function Exporter({
@@ -38,6 +34,7 @@ export function Exporter({
     s.projects.find((p) => p.id === projectId)
   );
   const blocks = useStudioStore((s) => s.blocks);
+  const clips = useStudioStore((s) => s.clips);
   const updateBlock = useStudioStore((s) => s.updateBlock);
 
   const exportableBlocks = useMemo(
@@ -46,7 +43,7 @@ export function Exporter({
   );
 
   const [mode, setMode] = useState<ExportMode>("single");
-  const [format, setFormat] = useState<ExportFormat>("mp3-128");
+  const [format, setFormat] = useState<ExportFormat>("mp3-192");
   const [selectedBlockId, setSelectedBlockId] = useState<string>(
     defaultBlockId ?? ""
   );
@@ -81,7 +78,7 @@ export function Exporter({
       if (mode === "single") {
         const block = exportableBlocks.find((b) => b.id === activeBlockId);
         if (!block) throw new Error("Selecciona un capítol per exportar.");
-        const blob = await resolveBlob(block);
+        const blob = await resolveBlockExportBlob(block, clips);
         if (!blob) throw new Error("No s'ha trobat l'àudio del capítol.");
 
         const output = await exportSingleBlob(
@@ -108,7 +105,11 @@ export function Exporter({
         const selected = exportableBlocks.filter((b) => mergeIds.has(b.id));
         const blobs: Blob[] = [];
         for (const block of selected) {
-          const blob = await resolveBlob(block);
+          setProgress({
+            ratio: blobs.length / Math.max(selected.length, 1) * 0.15,
+            message: `Preparant ${block.title}…`,
+          });
+          const blob = await resolveBlockExportBlob(block, clips);
           if (blob) blobs.push(blob);
         }
         if (blobs.length === 0) throw new Error("Cap capítol amb àudio seleccionat.");
@@ -139,7 +140,11 @@ export function Exporter({
       const exportedIds: string[] = [];
 
       for (const block of exportableBlocks) {
-        const blob = await resolveBlob(block);
+        setProgress({
+          ratio: index / exportableBlocks.length,
+          message: `Preparant ${block.title}…`,
+        });
+        const blob = await resolveBlockExportBlob(block, clips);
         if (!blob) continue;
         index += 1;
         setProgress({
@@ -179,15 +184,16 @@ export function Exporter({
       setProgress({ ratio: 1, message: "ZIP exportat" });
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        setError(
-          err instanceof Error ? err.message : "Error desconegut en exportar."
-        );
+        const message =
+          err instanceof Error ? err.message : "Error desconegut en exportar.";
+        setError(message.length > 400 ? `${message.slice(0, 400)}…` : message);
       }
     } finally {
       setIsExporting(false);
     }
   }, [
     activeBlockId,
+    clips,
     exportableBlocks,
     format,
     gapSeconds,
@@ -221,6 +227,11 @@ export function Exporter({
         <Badge variant="secondary">ffmpeg.wasm · -16 LUFS</Badge>
       </div>
 
+      <p className="text-xs text-muted-foreground">
+        S&apos;exporta la pista activa de cada capítol amb retalls, velocitat, to i
+        volum aplicats.
+      </p>
+
       {error && (
         <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
@@ -251,6 +262,7 @@ export function Exporter({
         {(
           [
             ["mp3-128", "MP3 128k"],
+            ["mp3-192", "MP3 192k"],
             ["mp3-320", "MP3 320k"],
             ["aac", "AAC"],
             ["flac", "FLAC"],

@@ -10,11 +10,12 @@ import {
   toStoredDurationSeconds,
 } from "@/lib/audio";
 import {
-  deleteBlockAudio,
-  loadBlockAudio,
-  persistBlockRecording,
+  deleteClipAudio,
+  ensureActiveClip,
+  loadClipAudio,
+  persistClipRecording,
 } from "@/lib/storage";
-import { useStudioStore } from "@/store";
+import { getActiveClip, useStudioStore } from "@/store";
 
 export type RecorderPhase = "loading" | "idle" | "recording" | "playback";
 
@@ -31,10 +32,11 @@ interface RecorderSession {
 }
 
 export function useRecorder({ blockId }: UseRecorderOptions) {
-  const updateBlock = useStudioStore((s) => s.updateBlock);
-  const storeBlob = useStudioStore(
-    (s) => s.blocks.find((b) => b.id === blockId)?.audioBlob ?? null
-  );
+  const block = useStudioStore((s) => s.blocks.find((b) => b.id === blockId));
+  const clips = useStudioStore((s) => s.clips);
+  const activeClip = block ? getActiveClip(clips, block) : undefined;
+  const clipId = activeClip?.id ?? null;
+  const storeBlob = activeClip?.audioBlob ?? null;
 
   const [phase, setPhase] = useState<RecorderPhase>("loading");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -95,6 +97,14 @@ export function useRecorder({ blockId }: UseRecorderOptions) {
       setPhase("loading");
       setError(null);
 
+      if (!clipId) {
+        if (!cancelled) {
+          setAudioBlob(null);
+          setPhase("idle");
+        }
+        return;
+      }
+
       if (storeBlob) {
         if (!cancelled) {
           setAudioBlob(storeBlob);
@@ -105,16 +115,15 @@ export function useRecorder({ blockId }: UseRecorderOptions) {
       }
 
       try {
-        const stored = await loadBlockAudio(blockId);
+        const stored = await loadClipAudio(clipId);
         if (cancelled) return;
 
         if (stored) {
           const duration = await getAudioDurationFromBlob(stored);
           const durationSeconds = toStoredDurationSeconds(duration);
-          updateBlock(blockId, {
+          useStudioStore.getState().updateClip(clipId, {
             audioBlob: stored,
             durationSeconds,
-            status: "recorded",
           });
           setAudioBlob(stored);
           setOriginalBlob(null);
@@ -136,7 +145,7 @@ export function useRecorder({ blockId }: UseRecorderOptions) {
     return () => {
       cancelled = true;
     };
-  }, [blockId, storeBlob, updateBlock]);
+  }, [blockId, clipId, storeBlob]);
 
   useEffect(() => {
     return () => cleanupSession();
@@ -169,6 +178,14 @@ export function useRecorder({ blockId }: UseRecorderOptions) {
     const mimeType = getSupportedRecordingMimeType();
     if (!mimeType) {
       setError("El teu navegador no admet cap format de gravació compatible.");
+      return;
+    }
+
+    let targetClipId: string;
+    try {
+      targetClipId = ensureActiveClip(blockId);
+    } catch {
+      setError("No s'ha pogut preparar la pista de gravació.");
       return;
     }
 
@@ -251,7 +268,12 @@ export function useRecorder({ blockId }: UseRecorderOptions) {
               recordedSeconds
             );
             const durationSeconds = toStoredDurationSeconds(finalDuration);
-            await persistBlockRecording(blockId, finalBlob, durationSeconds);
+            await persistClipRecording(
+              targetClipId,
+              blockId,
+              finalBlob,
+              durationSeconds
+            );
             setAudioBlob(finalBlob);
             setPhase("playback");
           } catch (err) {
@@ -308,16 +330,16 @@ export function useRecorder({ blockId }: UseRecorderOptions) {
   }, []);
 
   const reRecord = useCallback(async () => {
+    if (!clipId) return;
     setError(null);
     cleanupSession();
     setElapsedMs(0);
     setIsSaving(true);
     try {
-      await deleteBlockAudio(blockId);
-      updateBlock(blockId, {
+      await deleteClipAudio(clipId);
+      useStudioStore.getState().updateClip(clipId, {
         audioBlob: null,
         durationSeconds: 0,
-        status: "empty",
       });
       setOriginalBlob(null);
       setAudioBlob(null);
@@ -327,7 +349,7 @@ export function useRecorder({ blockId }: UseRecorderOptions) {
     } finally {
       setIsSaving(false);
     }
-  }, [blockId, cleanupSession, updateBlock]);
+  }, [clipId, cleanupSession]);
 
   return {
     phase,
@@ -340,6 +362,7 @@ export function useRecorder({ blockId }: UseRecorderOptions) {
     isDenoising,
     noiseReductionEnabled,
     comparisonMode,
+    hasActiveClip: Boolean(clipId),
     startRecording,
     stopRecording,
     reRecord,

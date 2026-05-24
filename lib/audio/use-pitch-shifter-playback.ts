@@ -19,22 +19,32 @@ export type PitchShifterPlayback = {
   }) => void;
 };
 
+type ShifterInstance = {
+  tempo: number;
+  pitchSemitones: number;
+  duration: number;
+  percentagePlayed: number;
+  connect: (node: AudioNode) => void;
+  disconnect: () => void;
+  on: (
+    event: string,
+    cb: (detail: { timePlayed: number }) => void
+  ) => void;
+  off: (event?: string | null) => void;
+};
+
 export function usePitchShifterPlayback(
   blob: Blob | null,
   tempo: number,
   pitchSemitones: number
 ): PitchShifterPlayback {
   const ctxRef = useRef<AudioContext | null>(null);
-  const shifterRef = useRef<{
-    tempo: number;
-    pitchSemitones: number;
-    duration: number;
-    connect: (node: AudioNode) => void;
-    disconnect: () => void;
-    on: (event: string, cb: (detail: { timePlayed: number }) => void) => void;
-    off: (event?: string | null) => void;
-    percentagePlayed: number;
-  } | null>(null);
+  const bufferRef = useRef<AudioBuffer | null>(null);
+  const shifterRef = useRef<ShifterInstance | null>(null);
+  const savedPercentRef = useRef(0);
+  const tempoRef = useRef(tempo);
+  const pitchRef = useRef(pitchSemitones);
+
   const gainRef = useRef<GainNode | null>(null);
   const lowRef = useRef<BiquadFilterNode | null>(null);
   const midRef = useRef<BiquadFilterNode | null>(null);
@@ -45,6 +55,102 @@ export function usePitchShifterPlayback(
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+
+  tempoRef.current = tempo;
+  pitchRef.current = pitchSemitones;
+
+  const destroyShifter = useCallback(() => {
+    shifterRef.current?.off("play");
+    shifterRef.current?.disconnect();
+    shifterRef.current = null;
+  }, []);
+
+  const createAndConnectShifter = useCallback(async () => {
+    if (!ctxRef.current || !bufferRef.current || !gainRef.current) return null;
+
+    const { PitchShifter } = await import("soundtouchjs");
+    destroyShifter();
+
+    const bufferDuration = bufferRef.current.duration;
+    const bufferLength = bufferRef.current.length;
+
+    const shifter = new PitchShifter(
+      ctxRef.current,
+      bufferRef.current,
+      16384,
+      () => {
+        const endPct = savedPercentRef.current;
+        // #region agent log
+        fetch("http://127.0.0.1:7696/ingest/413f817f-149f-48a6-901c-86e9787dbcfb", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Debug-Session-Id": "c2f93a",
+          },
+          body: JSON.stringify({
+            sessionId: "c2f93a",
+            runId: "pre-fix",
+            hypothesisId: "A",
+            location: "use-pitch-shifter-playback.ts:onEnd",
+            message: "PitchShifter onEnd fired",
+            data: {
+              bufferDuration,
+              bufferLength,
+              timePlayed: (endPct / 100) * shifter.duration,
+              percentagePlayed: endPct,
+              shifterDuration: shifter.duration,
+              tempo: tempoRef.current,
+              pitch: pitchRef.current,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        setIsPlaying(false);
+        savedPercentRef.current = 0;
+        destroyShifter();
+      }
+    ) as ShifterInstance;
+
+    shifter.tempo = tempoRef.current;
+    shifter.pitchSemitones = pitchRef.current;
+    shifter.percentagePlayed = savedPercentRef.current;
+    shifter.on("play", (detail) => {
+      setCurrentTime(detail.timePlayed);
+      savedPercentRef.current = shifter.percentagePlayed;
+      const pct = shifter.percentagePlayed;
+      if (pct >= 95 || pct % 25 < 1) {
+        // #region agent log
+        fetch("http://127.0.0.1:7696/ingest/413f817f-149f-48a6-901c-86e9787dbcfb", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Debug-Session-Id": "c2f93a",
+          },
+          body: JSON.stringify({
+            sessionId: "c2f93a",
+            runId: "pre-fix",
+            hypothesisId: "A",
+            location: "use-pitch-shifter-playback.ts:play",
+            message: "PitchShifter progress",
+            data: {
+              timePlayed: detail.timePlayed,
+              percentagePlayed: pct,
+              shifterDuration: shifter.duration,
+              bufferDuration,
+              tempo: tempoRef.current,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+      }
+    });
+
+    shifter.connect(gainRef.current);
+    shifterRef.current = shifter;
+    return shifter;
+  }, [destroyShifter]);
 
   useEffect(() => {
     const ctx = new AudioContext();
@@ -72,17 +178,17 @@ export function usePitchShifterPlayback(
     compRef.current = comp;
 
     return () => {
-      shifterRef.current?.off("play");
-      shifterRef.current?.disconnect();
+      destroyShifter();
       void ctx.close();
       ctxRef.current = null;
-      shifterRef.current = null;
+      bufferRef.current = null;
     };
-  }, []);
+  }, [destroyShifter]);
 
   useEffect(() => {
     if (!blob || !ctxRef.current) {
       setReady(false);
+      bufferRef.current = null;
       return;
     }
 
@@ -90,35 +196,43 @@ export function usePitchShifterPlayback(
     setReady(false);
     setIsPlaying(false);
     setCurrentTime(0);
+    savedPercentRef.current = 0;
+    destroyShifter();
 
     void (async () => {
       try {
-        const { PitchShifter } = await import("soundtouchjs");
-        if (cancelled || !ctxRef.current) return;
-
-        shifterRef.current?.off("play");
-        shifterRef.current?.disconnect();
-
         const arrayBuffer = await blob.arrayBuffer();
-        const audioBuffer = await ctxRef.current.decodeAudioData(
+        const audioBuffer = await ctxRef.current!.decodeAudioData(
           arrayBuffer.slice(0)
         );
         if (cancelled) return;
 
-        const shifter = new PitchShifter(
-          ctxRef.current,
-          audioBuffer,
-          16384,
-          () => setIsPlaying(false)
-        );
-        shifter.tempo = tempo;
-        shifter.pitchSemitones = pitchSemitones;
-        shifter.on("play", (detail) => {
-          setCurrentTime(detail.timePlayed);
-        });
-
-        shifterRef.current = shifter;
-        setDuration(shifter.duration);
+        bufferRef.current = audioBuffer;
+        setDuration(audioBuffer.duration);
+        // #region agent log
+        fetch("http://127.0.0.1:7696/ingest/413f817f-149f-48a6-901c-86e9787dbcfb", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Debug-Session-Id": "c2f93a",
+          },
+          body: JSON.stringify({
+            sessionId: "c2f93a",
+            runId: "pre-fix",
+            hypothesisId: "D",
+            location: "use-pitch-shifter-playback.ts:decode",
+            message: "Decoded buffer for pitch playback",
+            data: {
+              bufferDuration: audioBuffer.duration,
+              bufferLength: audioBuffer.length,
+              sampleRate: audioBuffer.sampleRate,
+              blobSize: blob.size,
+              blobType: blob.type,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         setReady(true);
       } catch {
         if (!cancelled) setReady(false);
@@ -128,35 +242,36 @@ export function usePitchShifterPlayback(
     return () => {
       cancelled = true;
     };
-    // tempo/pitch s'apliquen en un efecte separat sense recrear el shifter
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blob]);
-
-  useEffect(() => {
-    if (!shifterRef.current) return;
-    shifterRef.current.tempo = tempo;
-    shifterRef.current.pitchSemitones = pitchSemitones;
-  }, [tempo, pitchSemitones]);
+  }, [blob, destroyShifter]);
 
   const play = useCallback(async () => {
-    if (!shifterRef.current || !gainRef.current) return;
+    if (!bufferRef.current) return;
     await ctxRef.current?.resume();
-    shifterRef.current.connect(gainRef.current);
+    await createAndConnectShifter();
     setIsPlaying(true);
-  }, []);
+  }, [createAndConnectShifter]);
 
   const pause = useCallback(() => {
-    shifterRef.current?.disconnect();
+    if (shifterRef.current) {
+      savedPercentRef.current = shifterRef.current.percentagePlayed;
+    }
+    destroyShifter();
     setIsPlaying(false);
-  }, []);
+  }, [destroyShifter]);
 
-  const seekPercent = useCallback((percent: number) => {
-    if (!shifterRef.current) return;
-    shifterRef.current.percentagePlayed = Math.max(0, Math.min(100, percent));
-    setCurrentTime(
-      (shifterRef.current.percentagePlayed / 100) * shifterRef.current.duration
-    );
-  }, []);
+  const seekPercent = useCallback(
+    (percent: number) => {
+      const clamped = Math.max(0, Math.min(100, percent));
+      savedPercentRef.current = clamped;
+      if (shifterRef.current) {
+        shifterRef.current.percentagePlayed = clamped;
+        setCurrentTime((clamped / 100) * shifterRef.current.duration);
+      } else if (duration > 0) {
+        setCurrentTime((clamped / 100) * duration);
+      }
+    },
+    [duration]
+  );
 
   const setVolume = useCallback((gain: number) => {
     if (gainRef.current) gainRef.current.gain.value = gain;

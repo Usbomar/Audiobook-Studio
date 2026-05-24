@@ -6,12 +6,14 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useRef } from "react";
 import {
   ChevronDown,
   ChevronRight,
   GripVertical,
   Layers,
   Plus,
+  Upload,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -29,6 +31,7 @@ interface SortableProjectItemProps {
   onToggle: () => void;
   onAddBlock: () => void;
   onDeleteBlock?: (block: Block) => void;
+  onImportAudio?: (projectId: string, file: File) => void;
 }
 
 export function SortableProjectItem({
@@ -40,7 +43,9 @@ export function SortableProjectItem({
   onToggle,
   onAddBlock,
   onDeleteBlock,
+  onImportAudio,
 }: SortableProjectItemProps) {
+  const importInputRef = useRef<HTMLInputElement>(null);
   const {
     attributes,
     listeners,
@@ -142,6 +147,31 @@ export function SortableProjectItem({
             <Plus className="size-3.5" />
             Afegir capítol
           </Button>
+          {onImportAudio && (
+            <>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept="audio/*,.wav,.mp3,.webm,.ogg,.m4a,.aac,.flac"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onImportAudio(project.id, file);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 w-full justify-start gap-1.5 px-1 text-xs text-muted-foreground"
+                onClick={() => importInputRef.current?.click()}
+              >
+                <Upload className="size-3.5" />
+                Importar àudio
+              </Button>
+            </>
+          )}
         </div>
       )}
     </div>

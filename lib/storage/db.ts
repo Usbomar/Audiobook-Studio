@@ -1,8 +1,9 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import type { Block, Project } from "@/store/types";
+import type { Block, ChapterClip, Project } from "@/store/types";
+import type { ClipAudioRecord } from "./clips-db";
 
 const DB_NAME = "audiobook-studio";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 interface BlockAudioRecord {
   blockId: string;
@@ -12,16 +13,21 @@ interface BlockAudioRecord {
 }
 
 export interface ProjectSnapshot {
-  version: 1;
+  version: 2;
   savedAt: string;
   projects: Project[];
   blocks: Array<Omit<Block, "audioBlob"> & { audioBlob: null }>;
+  clips: Array<Omit<ChapterClip, "audioBlob"> & { audioBlob: null }>;
 }
 
 export interface AudiobookStudioDB extends DBSchema {
   "block-audio": {
     key: string;
     value: BlockAudioRecord;
+  };
+  "chapter-clips": {
+    key: string;
+    value: ClipAudioRecord;
   };
   "project-state": {
     key: string;
@@ -40,6 +46,9 @@ export function getStorageDb(): Promise<IDBPDatabase<AudiobookStudioDB>> {
         }
         if (oldVersion < 2 && !db.objectStoreNames.contains("project-state")) {
           db.createObjectStore("project-state");
+        }
+        if (oldVersion < 3 && !db.objectStoreNames.contains("chapter-clips")) {
+          db.createObjectStore("chapter-clips", { keyPath: "clipId" });
         }
       },
     });

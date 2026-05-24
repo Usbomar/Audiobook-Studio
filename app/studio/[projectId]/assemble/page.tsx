@@ -27,8 +27,8 @@ import {
   calculateAssemblyDurationSeconds,
   type AssemblyGapSeconds,
 } from "@/lib/audio/assembly-preview";
-import { loadBlockAudio } from "@/lib/storage";
-import { getBlocksForProject, useStudioStore } from "@/store";
+import { loadClipAudio, resolveBlockExportBlob } from "@/lib/storage";
+import { getBlocksForProject, getClipsForBlock, useStudioStore } from "@/store";
 import type { Block } from "@/store/types";
 
 function formatTotalDuration(seconds: number): string {
@@ -51,7 +51,8 @@ export default function AssemblePage() {
     s.projects.find((p) => p.id === params.projectId)
   );
   const blocks = useStudioStore((s) => s.blocks);
-  const updateBlock = useStudioStore((s) => s.updateBlock);
+  const clips = useStudioStore((s) => s.clips);
+  const updateClip = useStudioStore((s) => s.updateClip);
   const reorderBlocks = useStudioStore((s) => s.reorderBlocks);
   const setActiveProject = useStudioStore((s) => s.setActiveProject);
 
@@ -86,9 +87,14 @@ export default function AssemblePage() {
       setIsHydrating(true);
       for (const block of recordedBlocks) {
         if (cancelled || block.audioBlob) continue;
-        const stored = await loadBlockAudio(block.id);
-        if (stored) {
-          updateBlock(block.id, { audioBlob: stored });
+        const blockClips = getClipsForBlock(clips, block.id);
+        const active =
+          blockClips.find((c) => c.id === block.activeClipId) ?? blockClips[0];
+        if (active && !active.audioBlob) {
+          const stored = await loadClipAudio(active.id);
+          if (stored) {
+            updateClip(active.id, { audioBlob: stored });
+          }
         }
       }
       if (!cancelled) setIsHydrating(false);
@@ -98,7 +104,7 @@ export default function AssemblePage() {
     return () => {
       cancelled = true;
     };
-  }, [recordedBlocks, updateBlock]);
+  }, [clips, recordedBlocks, updateClip]);
 
   useEffect(() => {
     return () => previewRef.current?.stop();
@@ -156,9 +162,8 @@ export default function AssemblePage() {
 
     const blobs: Blob[] = [];
     for (const block of selectedBlocks) {
-      let blob = block.audioBlob;
-      if (!blob) blob = await loadBlockAudio(block.id);
-      if (blob) blobs.push(blob);
+      const prepared = await resolveBlockExportBlob(block, clips);
+      if (prepared) blobs.push(prepared);
     }
 
     if (blobs.length === 0) return;

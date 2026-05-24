@@ -29,7 +29,7 @@ import {
 } from "@/store";
 import type { Block, Project } from "@/store/types";
 import { DeleteBlockDialog } from "@/components/blocks/delete-block-dialog";
-import { removeBlockFromStudio } from "@/lib/storage";
+import { importAudioIntoChapter, removeBlockFromStudio } from "@/lib/storage";
 import { NewProjectDialog } from "./new-project-dialog";
 import { SortableProjectItem } from "./sortable-project-item";
 import { StatusDot } from "./status-dot";
@@ -38,6 +38,7 @@ export function Sidebar() {
   const router = useRouter();
   const projects = useStudioStore((s) => s.projects);
   const blocks = useStudioStore((s) => s.blocks);
+  const clips = useStudioStore((s) => s.clips);
   const activeProjectId = useStudioStore((s) => s.activeProjectId);
   const activeBlockId = useStudioStore((s) => s.activeBlockId);
   const addProject = useStudioStore((s) => s.addProject);
@@ -107,6 +108,19 @@ export function Sidebar() {
       }
     } finally {
       setIsDeletingBlock(false);
+    }
+  };
+
+  const handleImportAudio = async (projectId: string, file: File) => {
+    const title =
+      file.name.replace(/\.[^.]+$/i, "").trim() || "Capítol importat";
+    const blockId = addBlock(projectId, title);
+    setExpandedIds((prev) => new Set(prev).add(projectId));
+    try {
+      await importAudioIntoChapter(blockId, file);
+      router.push(`/studio/${projectId}/${blockId}`);
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -186,7 +200,7 @@ export function Sidebar() {
             disabled={isBackingUp || projects.length === 0}
             onClick={() => {
               setIsBackingUp(true);
-              void exportProjectBackup(projects, blocks).finally(() =>
+              void exportProjectBackup(projects, blocks, clips).finally(() =>
                 setIsBackingUp(false)
               );
             }}
@@ -224,6 +238,9 @@ export function Sidebar() {
                       onToggle={() => toggleExpanded(project.id)}
                       onAddBlock={() => setBlockDialogProjectId(project.id)}
                       onDeleteBlock={setBlockToDelete}
+                      onImportAudio={(projectId, file) =>
+                        void handleImportAudio(projectId, file)
+                      }
                     />
                   ))
                 )}

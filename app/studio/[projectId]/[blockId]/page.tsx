@@ -7,6 +7,7 @@ import { Trash2 } from "lucide-react";
 import { DeleteBlockDialog } from "@/components/blocks/delete-block-dialog";
 import { Recorder } from "@/components/recorder";
 import { AudioEditor } from "@/components/editor";
+import { ImportAudioButton } from "@/components/chapters/import-audio-button";
 import { Exporter } from "@/components/exporter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,15 +84,18 @@ export default function StudioPage() {
           </p>
           <Badge variant="secondary">{statusLabel}</Badge>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={() => setDeleteOpen(true)}
-        >
-          <Trash2 className="size-4" />
-          Esborrar capítol
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ImportAudioButton blockId={block.id} />
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => setDeleteOpen(true)}
+          >
+            <Trash2 className="size-4" />
+            Esborrar capítol
+          </Button>
+        </div>
       </header>
 
       <DeleteBlockDialog

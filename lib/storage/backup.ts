@@ -1,15 +1,17 @@
 import JSZip from "jszip";
-import type { Block, Project } from "@/store/types";
+import type { Block, ChapterClip, Project } from "@/store/types";
+import { loadClipAudio } from "./clips-db";
 import { loadBlockAudio } from "./audio-db";
 import { saveZipWithPicker } from "./file-save";
 
 export async function exportProjectBackup(
   projects: Project[],
-  blocks: Block[]
+  blocks: Block[],
+  clips: ChapterClip[]
 ): Promise<void> {
   const zip = new JSZip();
   const manifest = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     projects,
     blocks: blocks.map((block) => ({
@@ -19,7 +21,17 @@ export async function exportProjectBackup(
       order: block.order,
       status: block.status,
       durationSeconds: block.durationSeconds,
+      activeClipId: block.activeClipId,
       scriptText: block.scriptText ?? "",
+    })),
+    clips: clips.map((clip) => ({
+      id: clip.id,
+      blockId: clip.blockId,
+      title: clip.title,
+      order: clip.order,
+      durationSeconds: clip.durationSeconds,
+      createdAt: clip.createdAt,
+      editorSettings: clip.editorSettings,
     })),
   };
 
@@ -36,9 +48,8 @@ export async function exportProjectBackup(
 
   const audioFolder = zip.folder("audio");
   if (audioFolder) {
-    for (const block of blocks) {
-      if (block.status === "empty") continue;
-      const blob = block.audioBlob ?? (await loadBlockAudio(block.id));
+    for (const clip of clips) {
+      const blob = clip.audioBlob ?? (await loadClipAudio(clip.id));
       if (!blob) continue;
       const ext = blob.type.includes("wav")
         ? "wav"
@@ -47,7 +58,16 @@ export async function exportProjectBackup(
           : blob.type.includes("webm")
             ? "webm"
             : "audio";
-      audioFolder.file(`${block.id}.${ext}`, blob);
+      audioFolder.file(`${clip.id}.${ext}`, blob);
+    }
+
+    for (const block of blocks) {
+      const hasClips = clips.some((c) => c.blockId === block.id);
+      if (hasClips || block.status === "empty") continue;
+      const blob = block.audioBlob ?? (await loadBlockAudio(block.id));
+      if (!blob) continue;
+      const ext = blob.type.includes("wav") ? "wav" : "webm";
+      audioFolder.file(`legacy-${block.id}.${ext}`, blob);
     }
   }
 

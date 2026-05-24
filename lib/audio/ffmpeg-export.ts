@@ -1,8 +1,9 @@
 import { fetchFile } from "@ffmpeg/util";
 import type { FFmpeg } from "@ffmpeg/ffmpeg";
-import { getFFmpeg } from "./ffmpeg-client";
+import { getFFmpeg, getLastFfmpegLog } from "./ffmpeg-client";
+import { prepareFfmpegInputBlob } from "./prepare-ffmpeg-input";
 
-export type ExportFormat = "mp3-128" | "mp3-320" | "aac" | "flac";
+export type ExportFormat = "mp3-128" | "mp3-192" | "mp3-320" | "aac" | "flac";
 
 export interface ExportMetadata {
   album: string;
@@ -45,6 +46,8 @@ function encodeArgs(
 
   if (format === "mp3-128") {
     args.push("-c:a", "libmp3lame", "-b:a", "128k", outputName);
+  } else if (format === "mp3-192") {
+    args.push("-c:a", "libmp3lame", "-b:a", "192k", outputName);
   } else if (format === "mp3-320") {
     args.push("-c:a", "libmp3lame", "-b:a", "320k", outputName);
   } else if (format === "aac") {
@@ -71,6 +74,12 @@ async function runWithProgress(
   ffmpeg.on("progress", progressHandler);
   try {
     await ffmpeg.exec(args);
+  } catch (error) {
+    const log = getLastFfmpegLog();
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      log ? `ffmpeg: ${detail}\n${log}` : `ffmpeg: ${detail}`
+    );
   } finally {
     ffmpeg.off("progress", progressHandler);
   }
@@ -87,7 +96,8 @@ export async function exportSingleBlob(
   const outputName = `output.${extensionForFormat(format)}`;
 
   onProgress?.({ ratio: 0.05, message: "Preparant fitxer…" });
-  await ffmpeg.writeFile(inputName, await fetchFile(inputBlob));
+  const wavBlob = await prepareFfmpegInputBlob(inputBlob);
+  await ffmpeg.writeFile(inputName, await fetchFile(wavBlob));
 
   const args = ["-i", inputName, ...encodeArgs(format, outputName, metadata)];
   onProgress?.({ ratio: 0.1, message: "Normalitzant i codificant…" });
@@ -136,7 +146,8 @@ export async function exportMergedBlobs(
   const concatFiles: string[] = [];
   for (let i = 0; i < blobs.length; i++) {
     const partName = `part${i}.wav`;
-    await ffmpeg.writeFile(partName, await fetchFile(blobs[i]));
+    const wavBlob = await prepareFfmpegInputBlob(blobs[i]);
+    await ffmpeg.writeFile(partName, await fetchFile(wavBlob));
     concatFiles.push(partName);
 
     if (gapSeconds > 0 && i < blobs.length - 1) {
