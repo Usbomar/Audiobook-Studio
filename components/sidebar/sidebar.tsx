@@ -18,7 +18,8 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Plus } from "lucide-react";
+import { Archive, Plus } from "lucide-react";
+import { exportProjectBackup } from "@/lib/storage/backup";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -48,6 +49,7 @@ export function Sidebar() {
   const [blockDialogProjectId, setBlockDialogProjectId] = useState<
     string | null
   >(null);
+  const [isBackingUp, setIsBackingUp] = useState(false);
   const [activeDrag, setActiveDrag] = useState<{
     type: "project" | "block";
     item: Project | Block;
@@ -141,13 +143,28 @@ export function Sidebar() {
           </h1>
         </div>
 
-        <div className="p-3">
+        <div className="space-y-2 p-3">
           <Button
             className="w-full gap-2"
             onClick={() => setProjectDialogOpen(true)}
           >
             <Plus className="size-4" />
             Nou projecte
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full gap-2"
+            disabled={isBackingUp || projects.length === 0}
+            onClick={() => {
+              setIsBackingUp(true);
+              void exportProjectBackup(projects, blocks).finally(() =>
+                setIsBackingUp(false)
+              );
+            }}
+          >
+            <Archive className="size-4" />
+            {isBackingUp ? "Creant backup…" : "Backup projecte"}
           </Button>
         </div>
 

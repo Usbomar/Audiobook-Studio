@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Circle, Loader2, Mic, RotateCcw, Square } from "lucide-react";
+import { registerShortcutHandlers } from "@/lib/shortcuts";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -40,11 +42,36 @@ export function Recorder({ blockId, className }: RecorderProps) {
     setComparisonMode,
   } = useRecorder({ blockId });
 
+  const audioRef = useRef<HTMLAudioElement>(null);
+
   const isRecording = phase === "recording";
   const hasRecording = phase === "playback" && audioBlob !== null;
   const isLoading = phase === "loading" || isSaving;
   const displayBlob =
     comparisonMode === "before" && originalBlob ? originalBlob : audioBlob;
+
+  useEffect(() => {
+    return registerShortcutHandlers({
+      onPlayPause: () => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        if (audio.paused) void audio.play();
+        else audio.pause();
+      },
+      onRecord: () => {
+        if (isSaving || isDenoising || phase === "loading") return;
+        if (isRecording) stopRecording();
+        else if (phase === "idle") startRecording();
+      },
+    });
+  }, [
+    isRecording,
+    isSaving,
+    isDenoising,
+    phase,
+    startRecording,
+    stopRecording,
+  ]);
 
   return (
     <section className={cn("space-y-6", className)}>
@@ -113,6 +140,7 @@ export function Recorder({ blockId, className }: RecorderProps) {
           {hasRecording && displayBlob && !isRecording && (
             <WaveformView
               blob={displayBlob}
+              audioRef={audioRef}
               label={
                 comparisonMode === "before"
                   ? "FORMA D'ONA · ABANS"

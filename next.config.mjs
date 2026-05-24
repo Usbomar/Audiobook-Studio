@@ -1,17 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Fase 9: afegir headers COOP/COEP per SharedArrayBuffer (ffmpeg.wasm en producció).
-  // async headers() {
-  //   return [
-  //     {
-  //       source: "/(.*)",
-  //       headers: [
-  //         { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-  //         { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
-  //       ],
-  //     },
-  //   ];
-  // },
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

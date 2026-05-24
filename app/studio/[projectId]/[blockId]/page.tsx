@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Recorder } from "@/components/recorder";
 import { AudioEditor } from "@/components/editor";
+import { Exporter } from "@/components/exporter";
 import { Badge } from "@/components/ui/badge";
 import { useStudioStore } from "@/store";
 import { getBlocksForProject } from "@/store";
@@ -79,6 +80,7 @@ export default function StudioPage() {
 
       <Recorder blockId={block.id} className="max-w-3xl" />
       <AudioEditor blockId={block.id} />
+      <Exporter projectId={project.id} defaultBlockId={block.id} />
     </div>
   );
 }

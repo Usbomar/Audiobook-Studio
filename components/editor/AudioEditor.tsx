@@ -5,6 +5,7 @@ import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.esm.js";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { registerShortcutHandlers } from "@/lib/shortcuts";
 import { persistEditedBlockAudio } from "@/lib/storage";
 import { getAudioDurationFromBlob } from "@/lib/audio";
 import { useStudioStore } from "@/store";
@@ -238,6 +239,15 @@ export function AudioEditor({ blockId }: { blockId: string }) {
     const duration = await getAudioDurationFromBlob(next);
     await persistEditedBlockAudio(blockId, next, Math.max(1, Math.round(duration)));
   };
+
+  const undoRef = useRef(undo);
+  undoRef.current = undo;
+
+  useEffect(() => {
+    return registerShortcutHandlers({
+      onUndo: () => void undoRef.current(),
+    });
+  }, []);
 
   if (!blob) return null;
 

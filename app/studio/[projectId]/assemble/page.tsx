@@ -19,7 +19,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { Loader2, Play, Square } from "lucide-react";
-import { AssembleBlockRow } from "@/components/exporter/assemble-block-row";
+import { AssembleBlockRow, Exporter } from "@/components/exporter";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -298,6 +298,8 @@ export default function AssemblePage() {
           </SortableContext>
         </DndContext>
       )}
+
+      <Exporter projectId={project.id} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import WaveSurfer from "wavesurfer.js";
 import { cn } from "@/lib/utils";
 
@@ -8,12 +8,14 @@ interface WaveformViewProps {
   blob: Blob;
   label?: string;
   className?: string;
+  audioRef?: RefObject<HTMLAudioElement>;
 }
 
 export function WaveformView({
   blob,
   label = "FORMA D'ONA",
   className,
+  audioRef,
 }: WaveformViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
@@ -60,7 +62,7 @@ export function WaveformView({
         {label}
       </p>
       <div ref={containerRef} className="w-full" />
-      <audio controls src={audioUrl} className="mt-4 w-full" />
+      <audio ref={audioRef} controls src={audioUrl} className="mt-4 w-full" />
     </div>
   );
 }
