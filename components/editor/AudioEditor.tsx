@@ -70,6 +70,10 @@ export function AudioEditor({ blockId }: { blockId: string }) {
   const disableDragSelectionRef = useRef<(() => void) | null>(null);
   const clipboardRef = useRef(clipboard);
   clipboardRef.current = clipboard;
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  /** Temps en segons del cursor (sincronitzat amb WaveSurfer, independent del render React) */
+  const playheadTimeRef = useRef(0);
 
   const blob = activeClip?.audioBlob ?? null;
   const blobUrl = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob]);
@@ -80,6 +84,7 @@ export function AudioEditor({ blockId }: { blockId: string }) {
     setHistory([]);
     setFuture([]);
     setSelection(null);
+    playheadTimeRef.current = 0;
   }, [activeClip]);
 
   useEffect(() => {
@@ -135,7 +140,10 @@ export function AudioEditor({ blockId }: { blockId: string }) {
     const regions = regionPluginRef.current;
     if (!regions || playbackRef.current.duration <= 0) return;
 
-    const start = Math.max(0, playbackRef.current.currentTime);
+    const start = Math.max(
+      0,
+      playheadTimeRef.current || playbackRef.current.currentTime
+    );
     const end = Math.min(playbackRef.current.duration, start + durationSec);
     regions.clearRegions();
     const region = regions.addRegion({
@@ -185,11 +193,21 @@ export function AudioEditor({ blockId }: { blockId: string }) {
     );
     regions.on("region-removed", () => setSelection(null));
 
-    ws.on("click", (relativeX) => {
-      const duration = ws.getDuration();
-      if (duration > 0 && typeof relativeX === "number") {
-        const time = relativeX * duration;
-        playbackRef.current.seekPercent((time / duration) * 100);
+    const seekWaveformToTime = (time: number) => {
+      const total = ws.getDuration();
+      if (total <= 0) return;
+      const clamped = Math.max(0, Math.min(time, total));
+      playheadTimeRef.current = clamped;
+      if (playbackRef.current.isPlaying) {
+        playbackRef.current.pause();
+      }
+      playbackRef.current.seekTime(clamped);
+      ws.setTime(clamped);
+    };
+
+    ws.on("interaction", (newTime) => {
+      if (typeof newTime === "number" && Number.isFinite(newTime)) {
+        seekWaveformToTime(newTime);
       }
     });
 
@@ -235,7 +253,9 @@ export function AudioEditor({ blockId }: { blockId: string }) {
 
     let rafId = 0;
     const tick = () => {
-      syncPlayhead(playbackRef.current.currentTime);
+      const t = playbackRef.current.currentTime;
+      playheadTimeRef.current = t;
+      syncPlayhead(t);
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
@@ -246,9 +266,45 @@ export function AudioEditor({ blockId }: { blockId: string }) {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
 
+  const startPlayback = useCallback(() => {
+    const duration = playbackRef.current.duration;
+    if (duration <= 0) return;
+
+    const ws = wsRef.current;
+    const cursorTime =
+      playheadTimeRef.current > 0
+        ? playheadTimeRef.current
+        : ws && ws.getDuration() > 0
+          ? ws.getCurrentTime()
+          : playbackRef.current.currentTime;
+
+    playbackRef.current.seekTime(cursorTime);
+    if (ws) ws.setTime(cursorTime);
+
+    const sel = selectionRef.current;
+    if (sel && sel.end > sel.start + 0.02) {
+      let start = cursorTime;
+      if (start < sel.start || start >= sel.end - 0.02) {
+        start = sel.start;
+        playbackRef.current.seekTime(start);
+        if (ws) ws.setTime(start);
+        playheadTimeRef.current = start;
+      }
+      void playbackRef.current.play({
+        range: { start: sel.start, end: sel.end },
+      });
+      return;
+    }
+
+    void playbackRef.current.play();
+  }, []);
+
   const togglePlayPause = () => {
-    if (playback.isPlaying) playback.pause();
-    else void playback.play();
+    if (playback.isPlaying) {
+      playback.pause();
+      return;
+    }
+    startPlayback();
   };
 
   const togglePlayPauseRef = useRef(togglePlayPause);
@@ -358,19 +414,37 @@ export function AudioEditor({ blockId }: { blockId: string }) {
 
       <div className="space-y-3 rounded-lg border border-border/60 p-4">
         <p className="text-xs text-muted-foreground">
-          Arrossega sobre la forma d&apos;ona per marcar un tram (zona blava), o
-          fes servir «Selecció al cursor». Clica on vulguis enganxar i prem
-          «Enganxar».
+          Clica o arrossega sobre la forma d&apos;ona per col·locar el cursor.
+          Arrossega per marcar un tram (zona blava): «Reproduir» sonarà només
+          aquesta selecció. En pausa, continua des del cursor.
         </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={!playback.ready}
-          onClick={() => createRegionAtPlayhead(3)}
-        >
-          Selecció al cursor (3s)
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!playback.ready}
+            onClick={() => createRegionAtPlayhead(3)}
+          >
+            Selecció al cursor (3s)
+          </Button>
+          {selection && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!playback.ready}
+              className="gap-1.5"
+              onClick={() => {
+                if (playback.isPlaying) playback.pause();
+                else startPlayback();
+              }}
+            >
+              <Play className="size-3.5 fill-current" />
+              Reproduir selecció
+            </Button>
+          )}
+        </div>
         <div ref={containerRef} />
         <div className="flex flex-wrap items-center gap-3">
           <Button
@@ -379,7 +453,7 @@ export function AudioEditor({ blockId }: { blockId: string }) {
             size="sm"
             className="gap-2"
             disabled={!playback.ready}
-            onClick={togglePlayPause}
+            onClick={() => togglePlayPause()}
           >
             {playback.isPlaying ? (
               <>
@@ -403,7 +477,17 @@ export function AudioEditor({ blockId }: { blockId: string }) {
           step={0.5}
           value={[progressPercent]}
           disabled={!playback.ready || playback.duration === 0}
-          onValueChange={(v) => playback.seekPercent(getSliderValue(v))}
+          onValueChange={(v) => {
+            const percent = getSliderValue(v);
+            const time =
+              playback.duration > 0
+                ? (percent / 100) * playback.duration
+                : 0;
+            playheadTimeRef.current = time;
+            playback.seekPercent(percent);
+            const ws = wsRef.current;
+            if (ws) ws.setTime(time);
+          }}
         />
         <div>
           <p className="mb-1 text-xs text-muted-foreground">Zoom</p>

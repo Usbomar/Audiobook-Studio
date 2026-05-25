@@ -2,14 +2,24 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+export type PlaybackRange = {
+  start: number;
+  end: number;
+};
+
+export type PlayOptions = {
+  range?: PlaybackRange;
+};
+
 export type PitchShifterPlayback = {
   ready: boolean;
   isPlaying: boolean;
   currentTime: number;
   duration: number;
-  play: () => Promise<void>;
+  play: (options?: PlayOptions) => Promise<void>;
   pause: () => void;
   seekPercent: (percent: number) => void;
+  seekTime: (time: number) => void;
   setVolume: (gain: number) => void;
   setEq: (eq: {
     bass: number;
@@ -33,6 +43,11 @@ type ShifterInstance = {
   off: (event?: string | null) => void;
 };
 
+/** SoundTouch usa fracció 0–1 al setter; el getter retorna 0–100. */
+function percentToFraction(percent: number): number {
+  return Math.max(0, Math.min(1, percent / 100));
+}
+
 export function usePitchShifterPlayback(
   blob: Blob | null,
   tempo: number,
@@ -41,7 +56,9 @@ export function usePitchShifterPlayback(
   const ctxRef = useRef<AudioContext | null>(null);
   const bufferRef = useRef<AudioBuffer | null>(null);
   const shifterRef = useRef<ShifterInstance | null>(null);
+  /** Posició en percentatge 0–100 (UI) */
   const savedPercentRef = useRef(0);
+  const playRangeRef = useRef<PlaybackRange | null>(null);
   const tempoRef = useRef(tempo);
   const pitchRef = useRef(pitchSemitones);
 
@@ -59,11 +76,42 @@ export function usePitchShifterPlayback(
   tempoRef.current = tempo;
   pitchRef.current = pitchSemitones;
 
+  const applySavedPositionToShifter = useCallback((shifter: ShifterInstance) => {
+    shifter.percentagePlayed = percentToFraction(savedPercentRef.current);
+  }, []);
+
+  const stopPlayback = useCallback((resetToStart = false) => {
+    if (shifterRef.current) {
+      savedPercentRef.current = shifterRef.current.percentagePlayed;
+    }
+    shifterRef.current?.off("play");
+    shifterRef.current?.disconnect();
+    shifterRef.current = null;
+    setIsPlaying(false);
+
+    if (resetToStart) {
+      savedPercentRef.current = 0;
+      setCurrentTime(0);
+      playRangeRef.current = null;
+    }
+  }, []);
+
   const destroyShifter = useCallback(() => {
     shifterRef.current?.off("play");
     shifterRef.current?.disconnect();
     shifterRef.current = null;
   }, []);
+
+  const finishAtRangeEnd = useCallback(() => {
+    const range = playRangeRef.current;
+    const d = bufferRef.current?.duration ?? duration;
+    if (range && d > 0) {
+      savedPercentRef.current = (range.end / d) * 100;
+      setCurrentTime(range.end);
+    }
+    destroyShifter();
+    setIsPlaying(false);
+  }, [destroyShifter, duration]);
 
   const createAndConnectShifter = useCallback(async () => {
     if (!ctxRef.current || !bufferRef.current || !gainRef.current) return null;
@@ -76,16 +124,25 @@ export function usePitchShifterPlayback(
       bufferRef.current,
       16384,
       () => {
-        setIsPlaying(false);
-        savedPercentRef.current = 0;
-        destroyShifter();
+        const range = playRangeRef.current;
+        if (range) {
+          finishAtRangeEnd();
+          return;
+        }
+        stopPlayback(true);
       }
     ) as ShifterInstance;
 
     shifter.tempo = tempoRef.current;
     shifter.pitchSemitones = pitchRef.current;
-    shifter.percentagePlayed = savedPercentRef.current;
+    applySavedPositionToShifter(shifter);
+
     shifter.on("play", (detail) => {
+      const range = playRangeRef.current;
+      if (range && detail.timePlayed >= range.end - 0.03) {
+        finishAtRangeEnd();
+        return;
+      }
       setCurrentTime(detail.timePlayed);
       savedPercentRef.current = shifter.percentagePlayed;
     });
@@ -93,7 +150,12 @@ export function usePitchShifterPlayback(
     shifter.connect(gainRef.current);
     shifterRef.current = shifter;
     return shifter;
-  }, [destroyShifter]);
+  }, [
+    applySavedPositionToShifter,
+    destroyShifter,
+    finishAtRangeEnd,
+    stopPlayback,
+  ]);
 
   useEffect(() => {
     const ctx = new AudioContext();
@@ -137,9 +199,8 @@ export function usePitchShifterPlayback(
 
     let cancelled = false;
     setReady(false);
-    setIsPlaying(false);
-    setCurrentTime(0);
-    savedPercentRef.current = 0;
+    stopPlayback(true);
+    playRangeRef.current = null;
     destroyShifter();
 
     void (async () => {
@@ -161,18 +222,40 @@ export function usePitchShifterPlayback(
     return () => {
       cancelled = true;
     };
-  }, [blob, destroyShifter]);
+  }, [blob, destroyShifter, stopPlayback]);
 
-  const play = useCallback(async () => {
-    if (!bufferRef.current) return;
-    await ctxRef.current?.resume();
-    await createAndConnectShifter();
-    setIsPlaying(true);
-  }, [createAndConnectShifter]);
+  const play = useCallback(
+    async (options?: PlayOptions) => {
+      if (!bufferRef.current) return;
+      const d = bufferRef.current.duration;
+
+      if (options?.range) {
+        const start = Math.max(0, Math.min(options.range.start, d));
+        const end = Math.max(start, Math.min(options.range.end, d));
+        playRangeRef.current = { start, end };
+
+        const currentTime = (savedPercentRef.current / 100) * d;
+        if (currentTime < start || currentTime >= end - 0.02) {
+          savedPercentRef.current = (start / d) * 100;
+          setCurrentTime(start);
+        }
+      } else {
+        playRangeRef.current = null;
+      }
+
+      await ctxRef.current?.resume();
+      await createAndConnectShifter();
+      setIsPlaying(true);
+    },
+    [createAndConnectShifter]
+  );
 
   const pause = useCallback(() => {
     if (shifterRef.current) {
       savedPercentRef.current = shifterRef.current.percentagePlayed;
+      setCurrentTime(
+        (savedPercentRef.current / 100) * shifterRef.current.duration
+      );
     }
     destroyShifter();
     setIsPlaying(false);
@@ -182,14 +265,25 @@ export function usePitchShifterPlayback(
     (percent: number) => {
       const clamped = Math.max(0, Math.min(100, percent));
       savedPercentRef.current = clamped;
+      const d = bufferRef.current?.duration ?? duration;
+      if (d > 0) {
+        setCurrentTime((clamped / 100) * d);
+      }
       if (shifterRef.current) {
-        shifterRef.current.percentagePlayed = clamped;
-        setCurrentTime((clamped / 100) * shifterRef.current.duration);
-      } else if (duration > 0) {
-        setCurrentTime((clamped / 100) * duration);
+        shifterRef.current.percentagePlayed = percentToFraction(clamped);
       }
     },
     [duration]
+  );
+
+  const seekTime = useCallback(
+    (time: number) => {
+      const d = bufferRef.current?.duration ?? duration;
+      if (d <= 0) return;
+      const clamped = Math.max(0, Math.min(d, time));
+      seekPercent((clamped / d) * 100);
+    },
+    [duration, seekPercent]
   );
 
   const setVolume = useCallback((gain: number) => {
@@ -218,6 +312,7 @@ export function usePitchShifterPlayback(
     play,
     pause,
     seekPercent,
+    seekTime,
     setVolume,
     setEq,
   };
